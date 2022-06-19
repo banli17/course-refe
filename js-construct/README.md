@@ -2,8 +2,36 @@
 
 ## 宏任务和微任务
 
-- 它的来源是宏内核和微内核，从操作系统角度说，微就是程序告诉某个单元做一件事，如让读取文件内容。宏(批处理)是告诉操作系统做一件事，如下载文件，它会调用网络请求和写文件服务。所以宏指大，微指小。
-- 同步到浏览器, 宏任务(v8外控制)就是浏览器去执行的事情，如发送请求，然后用 v8 执行回调函数。微任务就是 v8 引擎js 所做的事情, 如执行某段 js 代码，微任务是 v8 模拟的，是语法层面的概念。
+- 宏表示大，微表示小。
+- 对于 v8 来说, 浏览器调用 v8 执行代码, 这是宏，是在浏览器层维护的。而 v8 自己执行 js 代码，这是微，是 v8 内部维护的。比如 ajax 发送请求后执行回调，是浏览器请求后调用 v8 执行回调，所以 ajax 是一个宏任务，它会经过事件循环去执行。而 promise.then 代码, v8 会将它放到当前宏任务的最后去执行。
+
+伪代码如下(个人理解): 
+
+```js
+// 浏览器中, 事件循环是针对浏览器层面的，而不是 v8 内
+let macroTasks = []
+eventLoop()
+function eventLoop(){
+  while(true){
+    let macroTask = macroTasks.shift()
+
+    v8.run(macroTask.code)
+  }
+}
+
+// v8 中
+v8.microTasks = []
+v8.run = function(code) {
+  exec(code, {
+    onPromise(){ // 如果有 promise, 将回调放入微任务队列中
+      microTasks.push(promiseCallback)
+    }
+  })
+  microTasks.run() // 清空微任务队列
+}
+```
+
+**oc例子**
 
 ```
 // 每个 evaluateScript 会产生一个宏任务
@@ -13,18 +41,16 @@ evaluateScript(`Promise.resolve().then(()=>var c = 3;)`) // 这个宏任务有 2
 
 **为什么要区分宏任务和微任务？**
 
-区分宏任务和微任务，是为了在下一次 Event loop 之前插队。将微任务插入到下次 Event Loop 之前。如果不区分, 那么新注册的任务要等到下次宏任务完成后才能执行。
+区分宏任务和微任务，是为了在下一次 Event Loop 之前插队。将微任务插入到下次 Event Loop 之前。如果不区分, 那么新注册的任务要等到下次宏任务完成后才能执行。
 
 宏任务是多线程异步逻辑，微任务是 js 语言本地异步(延迟执行)。
 
 **微任务有哪些**
 
-- promise： 别名叫延迟执行语句
+- promise： 别名叫延迟执行语句，是针对函数进行异步(延迟异步), 不是针对事件循环。
 - mutation observer 为什么是微任务？因为 DOM 解析等过程发生在主线程
 
-promise 是针对函数进行异步(延迟异步), 不是针对事件循环。nodejs 在没有 promise 时，nextTick 在本轮循环结束执行，immediate 在下个事件循环开头执行。
-
-为了防止多线程共享内存通讯，内存被意外修改而导致主线程需要加锁，调度线程会在事件循环结束而下一次事件轮询（epoll）还未开始的时候，直接挂起主线程，而在下一次事件轮询开始后再唤醒而为了加速上下文切换（操作系统接手后，需要把内存空间从用户态转换成内核态），减少上下文切换的耗时，操作系统利用独立的内存空间和独立的硬件来实现内存空间映射，具体参考这篇文章 —— 阿里二面：什么是mmap？ - 知乎 (zhihu.com)
+nodejs 在没有 promise 时，nextTick 在本轮循环结束执行，immediate 在下个事件循环开头执行。
 
 **宏任务有哪些**
 
@@ -53,7 +79,7 @@ G6 Graph 可视化这个对象
 
 函数执行会创建执行上下文，并压入到执行栈。
 
-Execution Context 分为两种
+Execution Context 分为两种: 
 
 - ECMAScript Execution Context
 	- code evaluation state
@@ -82,7 +108,7 @@ VariableEnvironment
 
 - 用于处理 var 声明，历史遗留的包袱
 
-```
+```js
 {
 	let y = 2
 	eval('var x = 1')
@@ -143,9 +169,11 @@ function someFunction(arg) {
 
 Realm Record Fields 包含
 
+```
 {
 	[[Intrinsics]], // 代码中用到的当前 realm 的内在对象
 	[[GlobalObject]], // 当前 realm 的全局对象
 	[[TemplateMap]], // 
 	[[HostDefined]], // 供当前 realm 关联的主机环境使用的保留字段
 }
+```
